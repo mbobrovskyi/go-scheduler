@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
-	"github.com/mbobrovskyi/golibs/database/mongodb"
+	mongodbclient "github.com/mbobrovskyi/golibs/database/mongodb"
 	"github.com/mbobrovskyi/golibs/database/postgres"
-	"github.com/mbobrovskyi/golibs/database/redis"
+	redisclient "github.com/mbobrovskyi/golibs/database/redis"
 	"github.com/mbobrovskyi/golibs/logger"
 	"github.com/mbobrovskyi/goscheduler"
 	"github.com/mbobrovskyi/goscheduler/repository"
 	"github.com/mbobrovskyi/goscheduler/repository/memory"
-	"github.com/mbobrovskyi/goscheduler/repository/mongo"
+	mongorepository "github.com/mbobrovskyi/goscheduler/repository/mongo"
 	postgresrepository "github.com/mbobrovskyi/goscheduler/repository/postgres"
 	redisrepository "github.com/mbobrovskyi/goscheduler/repository/redis"
 	"github.com/stretchr/testify/assert"
@@ -32,11 +32,11 @@ func TestSchedulerMultipleInMemory(t *testing.T) {
 }
 
 func TestSchedulerMongodb(t *testing.T) {
-	testScheduler(t, mongodbSchedulerEntityRepo(t))
+	testScheduler(t, newMongoDBSchedulerEntityRepo(t))
 }
 
 func TestSchedulerMongodbMultiple(t *testing.T) {
-	testSchedulerMultiple(t, mongodbSchedulerEntityRepo(t))
+	testSchedulerMultiple(t, newMongoDBSchedulerEntityRepo(t))
 }
 
 func TestSchedulerRedis(t *testing.T) {
@@ -55,7 +55,7 @@ func TestSchedulerPostgresMultiple(t *testing.T) {
 	testSchedulerMultiple(t, postgresSchedulerEntityRepo(t))
 }
 
-func mongodbSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
+func newMongoDBSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -70,7 +70,7 @@ func mongodbSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 		),
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	mongoDBContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
@@ -79,27 +79,24 @@ func mongodbSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	}
 
 	t.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
+		if err := mongoDBContainer.Terminate(ctx); err != nil {
+			t.Errorf("failed to terminate mongoDBContainer: %s", err)
 		}
 	})
 
-	endpoint, err := container.Endpoint(ctx, "mongodb")
+	endpoint, err := mongoDBContainer.Endpoint(ctx, "mongodb")
 	if err != nil {
 		t.Fatal(fmt.Errorf("failed to get endpoint: %w", err))
 	}
 
-	dbClient, err := mongodb.NewMongoDbClient(context.Background(), endpoint)
+	dbClient, err := mongodbclient.NewMongoDbClient(ctx, endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	db := dbClient.Database("test")
 
-	options := &mongo.MongoDBSchedulerEntityRepoOptions{
-		CollectionName: "test-scheduler",
-	}
-	schedulerRepo := mongo.NewMongoDBSchedulerEntityRepo(db, options)
+	schedulerRepo := mongorepository.NewMongoDBSchedulerEntityRepo(db)
 
 	return schedulerRepo
 }
@@ -116,7 +113,7 @@ func redisSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 		WaitingFor: wait.ForLog("Ready to accept connections"),
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	redisContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
@@ -125,38 +122,39 @@ func redisSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	}
 
 	t.Cleanup(func() {
-		if err := container.Terminate(ctx); err != nil {
+		if err := redisContainer.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate container: %s", err)
 		}
 	})
 
-	ip, err := container.Host(ctx)
+	ip, err := redisContainer.Host(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	mappedPort, err := container.MappedPort(ctx, "6379")
+	mappedPort, err := redisContainer.MappedPort(ctx, "6379")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	db, err := redis.NewRedisClient(context.Background(), fmt.Sprintf("%s:%s", ip, mappedPort.Port()), "", 0)
+	addr := fmt.Sprintf("%s:%s", ip, mappedPort.Port())
+
+	db, err := redisclient.NewRedisClient(ctx, addr, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	options := &redisrepository.RedisSchedulerRepoOptions{
-		Key: "test-scheduler",
-	}
-	schedulerRepo := redisrepository.NewRedisSchedulerEntityRepo(db, options)
+	schedulerRepo := redisrepository.NewRedisSchedulerEntityRepo(db)
 
 	return schedulerRepo
 }
 
 func postgresSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
+	ctx := context.Background()
+
 	containerPort := "5432/tcp"
 	imageName := "postgres:latest"
-	ctx := context.Background()
+
 	req := testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image: imageName,
@@ -202,10 +200,7 @@ func postgresSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 		t.Fatal(err)
 	}
 
-	options := &postgresrepository.PostgresSchedulerEntityRepoOptions{
-		TableName: "test_scheduler",
-	}
-	schedulerRepo := postgresrepository.NewPostgresSchedulerEntity(db, options)
+	schedulerRepo := postgresrepository.NewPostgresSchedulerEntity(db)
 
 	return schedulerRepo
 }
@@ -221,7 +216,7 @@ func testScheduler(t *testing.T, schedulerEntityRepo repository.SchedulerEntityR
 		executedCount atomic.Int64
 	)
 
-	if err := s.Add(fmt.Sprintf("schedule"), time.Second, func(ctx goscheduler.Context) (bool, error) {
+	if err := s.Add("schedule", time.Second, func(ctx goscheduler.Context) (bool, error) {
 		t.Logf("Counter: %d. Last Run: %s. Last Finished At: %s. Last Success: %s.",
 			ctx.Counter(),
 			ctx.SchedulerEntity().LastRun.Format(time.RFC3339),
@@ -289,14 +284,16 @@ func testSchedulerMultiple(t *testing.T, schedulerEntityRepo repository.Schedule
 							return false, nil
 						}
 					}); err != nil {
-						t.Fatal(err)
+						t.Error(err)
+						return
 					}
 				}(i, j)
 			}
 
 			err := s.Start(ctx)
 			if err != nil && err != context.DeadlineExceeded {
-				t.Fatal(err)
+				t.Error(err)
+				return
 			}
 		}(i)
 	}

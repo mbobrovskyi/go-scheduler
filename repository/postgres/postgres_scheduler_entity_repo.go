@@ -109,18 +109,21 @@ func (s *PostgresSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity 
 	return err
 }
 
-func NewPostgresSchedulerEntity(
+func NewPostgresSchedulerEntity(db *sql.DB) *PostgresSchedulerEntityRepo {
+	return NewPostgresSchedulerEntityWithOptions(db, PostgresSchedulerEntityRepoOptions{})
+}
+
+func NewPostgresSchedulerEntityWithOptions(
 	db *sql.DB,
-	options *PostgresSchedulerEntityRepoOptions,
+	options PostgresSchedulerEntityRepoOptions,
 ) *PostgresSchedulerEntityRepo {
 	repo := &PostgresSchedulerEntityRepo{
-		db: db,
+		db:        db,
+		tableName: DefaultPostgresTableName,
 	}
 
-	if options != nil && options.TableName != "" {
+	if options.TableName != "" {
 		repo.tableName = options.TableName
-	} else {
-		repo.tableName = DefaultPostgresTableName
 	}
 
 	return repo

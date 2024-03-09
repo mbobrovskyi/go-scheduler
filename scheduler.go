@@ -28,7 +28,6 @@ type schedulerImpl struct {
 	schedulerEntityRepo repository.SchedulerEntityRepo
 	schedules           map[string]Schedule
 	isStarted           bool
-	doneCh              chan struct{}
 }
 
 func (s *schedulerImpl) Add(name string, interval time.Duration, f ExecuteFunction) error {

@@ -22,8 +22,8 @@ type MongoDBSchedulerEntityRepo struct {
 }
 
 func (s *MongoDBSchedulerEntityRepo) Init(ctx context.Context, name string) error {
-	filter := bson.D{{"name", name}}
-	update := bson.D{{"$setOnInsert", entity.NewSchedulerEntity(name)}}
+	filter := bson.D{{Key: "name", Value: name}}
+	update := bson.D{{Key: "$setOnInsert", Value: entity.NewSchedulerEntity(name)}}
 	opts := options.FindOneAndUpdate().SetUpsert(true)
 
 	if err := s.db.Collection(s.collectionName).
@@ -41,13 +41,13 @@ func (s *MongoDBSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name 
 	var schedulerEntity entity.SchedulerEntity
 
 	filter := bson.D{
-		{"name", name},
-		{"lastRun", bson.D{{
-			"$lte", lastRunTo,
+		{Key: "name", Value: name},
+		{Key: "lastRun", Value: bson.D{{
+			Key: "$lte", Value: lastRunTo,
 		}}},
 	}
 	update := bson.D{
-		{"$set", bson.M{"lastRun": time.Now().UTC()}},
+		{Key: "$set", Value: bson.M{"lastRun": time.Now().UTC()}},
 	}
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
@@ -63,8 +63,8 @@ func (s *MongoDBSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name 
 }
 
 func (s *MongoDBSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
-	filter := bson.D{{"name", schedulerEntity.Name}}
-	update := bson.D{{"$set", schedulerEntity}}
+	filter := bson.D{{Key: "name", Value: schedulerEntity.Name}}
+	update := bson.D{{Key: "$set", Value: schedulerEntity}}
 
 	if _, err := s.db.Collection(s.collectionName).
 		UpdateOne(ctx, filter, update); err != nil {
@@ -73,18 +73,21 @@ func (s *MongoDBSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity e
 	return nil
 }
 
-func NewMongoDBSchedulerEntityRepo(
+func NewMongoDBSchedulerEntityRepo(db *mongo.Database) *MongoDBSchedulerEntityRepo {
+	return NewMongoDBSchedulerEntityRepoWithOptions(db, MongoDBSchedulerEntityRepoOptions{})
+}
+
+func NewMongoDBSchedulerEntityRepoWithOptions(
 	db *mongo.Database,
-	options *MongoDBSchedulerEntityRepoOptions,
+	options MongoDBSchedulerEntityRepoOptions,
 ) *MongoDBSchedulerEntityRepo {
 	repo := &MongoDBSchedulerEntityRepo{
-		db: db,
+		db:             db,
+		collectionName: DefaultMongoDBCollectionName,
 	}
 
-	if options != nil && options.CollectionName != "" {
+	if options.CollectionName != "" {
 		repo.collectionName = options.CollectionName
-	} else {
-		repo.collectionName = DefaultMongoDBCollectionName
 	}
 
 	return repo

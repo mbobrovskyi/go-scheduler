@@ -126,18 +126,21 @@ func (s *RedisSchedulerEntityRepo) set(ctx context.Context, schedulerEntity enti
 	return nil
 }
 
-func NewRedisSchedulerEntityRepo(
+func NewRedisSchedulerEntityRepo(db *redis.Client) *RedisSchedulerEntityRepo {
+	return NewRedisSchedulerEntityRepoWithOptions(db, RedisSchedulerRepoOptions{})
+}
+
+func NewRedisSchedulerEntityRepoWithOptions(
 	db *redis.Client,
-	options *RedisSchedulerRepoOptions,
+	options RedisSchedulerRepoOptions,
 ) *RedisSchedulerEntityRepo {
 	repo := &RedisSchedulerEntityRepo{
-		db: db,
+		db:  db,
+		key: DefaultRedisKey,
 	}
 
-	if options != nil && options.Key == "" {
+	if options.Key == "" {
 		repo.key = options.Key
-	} else {
-		repo.key = DefaultRedisKey
 	}
 
 	return repo
