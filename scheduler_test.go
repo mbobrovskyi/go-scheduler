@@ -2,6 +2,7 @@ package goscheduler_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
 	mongodbclient "github.com/mbobrovskyi/golibs/database/mongodb"
@@ -17,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"sync"
+	"golang.org/x/sync/errgroup"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,6 +190,7 @@ func postgresSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	time.Sleep(2 * time.Second)
 
 	connectionString := fmt.Sprintf("postgresql://postgres:postgres@%s:%s/test?sslmode=disable", ip, mappedPort.Port())
@@ -213,7 +215,7 @@ func testScheduler(t *testing.T, schedulerEntityRepo repository.SchedulerEntityR
 
 	var (
 		count         int64 = 5
-		executedCount atomic.Int64
+		executedCount int64
 	)
 
 	if err := s.Add("schedule", time.Second, func(ctx goscheduler.Context) (bool, error) {
@@ -222,7 +224,9 @@ func testScheduler(t *testing.T, schedulerEntityRepo repository.SchedulerEntityR
 			ctx.SchedulerEntity().LastRun.Format(time.RFC3339),
 			ctx.SchedulerEntity().LastFinishedAt.Format(time.RFC3339),
 			ctx.SchedulerEntity().LastSuccess.Format(time.RFC3339))
-		executedCount.Add(1)
+
+		atomic.AddInt64(&executedCount, 1)
+
 		if ctx.Counter()%2 == 0 {
 			return true, nil
 		} else {
@@ -234,13 +238,13 @@ func testScheduler(t *testing.T, schedulerEntityRepo repository.SchedulerEntityR
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(count)*time.Second)
 	err := s.Start(ctx)
-	if err != nil && err != context.DeadlineExceeded {
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
 	}
 
 	cancel()
 
-	assert.Equal(t, count, executedCount.Load(), "they should be equal")
+	assert.Equal(t, count, executedCount, "they should be equal")
 }
 
 func testSchedulerMultiple(t *testing.T, schedulerEntityRepo repository.SchedulerEntityRepo) {
@@ -253,54 +257,60 @@ func testSchedulerMultiple(t *testing.T, schedulerEntityRepo repository.Schedule
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration*time.Second)
+	defer cancel()
 
-	executedCount := atomic.Int64{}
+	var executedCount int64
 
-	wg := sync.WaitGroup{}
+	eg, ctx := errgroup.WithContext(ctx)
 
 	for i := 0; i < schedulers; i++ {
-		wg.Add(1)
+		func(i int) {
+			eg.Go(func() error {
+				s := goscheduler.NewSchedulerWithOptions(goscheduler.SchedulerOptions{
+					Logger:              logger.NewTestLogger(t),
+					SchedulerEntityRepo: schedulerEntityRepo,
+				})
 
-		go func(i int) {
-			defer wg.Done()
+				for j := 0; j < schedules; j++ {
+					err := func(i, j int) error {
+						if err := s.Add(fmt.Sprintf("schedule %d", j+1), interval, func(ctx goscheduler.Context) (bool, error) {
+							t.Logf("Counter: %d. Last Run: %s. Last Success: %s. Last Finished At: %s. Scheduler: %d. Schedule %d.",
+								ctx.Counter(),
+								ctx.SchedulerEntity().LastRun.Format(time.RFC3339),
+								ctx.SchedulerEntity().LastFinishedAt.Format(time.RFC3339),
+								ctx.SchedulerEntity().LastSuccess.Format(time.RFC3339), i+1, j+1)
 
-			s := goscheduler.NewSchedulerWithOptions(goscheduler.SchedulerOptions{
-				Logger:              logger.NewTestLogger(t),
-				SchedulerEntityRepo: schedulerEntityRepo,
-			})
+							atomic.AddInt64(&executedCount, 1)
 
-			for j := 0; j < schedules; j++ {
-				func(i, j int) {
-					if err := s.Add(fmt.Sprintf("schedule %d", j+1), interval, func(ctx goscheduler.Context) (bool, error) {
-						t.Logf("Counter: %d. Last Run: %s. Last Success: %s. Last Finished At: %s. Scheduler: %d. Schedule %d.",
-							ctx.Counter(),
-							ctx.SchedulerEntity().LastRun.Format(time.RFC3339),
-							ctx.SchedulerEntity().LastFinishedAt.Format(time.RFC3339),
-							ctx.SchedulerEntity().LastSuccess.Format(time.RFC3339), i+1, j+1)
-						executedCount.Add(1)
-						if ctx.Counter()%2 == 0 {
-							return true, nil
-						} else {
-							return false, nil
+							if ctx.Counter()%2 == 0 {
+								return true, nil
+							} else {
+								return false, nil
+							}
+						}); err != nil {
+							return err
 						}
-					}); err != nil {
-						t.Error(err)
-						return
-					}
-				}(i, j)
-			}
 
-			err := s.Start(ctx)
-			if err != nil && err != context.DeadlineExceeded {
-				t.Error(err)
-				return
-			}
+						return nil
+					}(i, j)
+					if err != nil {
+						return err
+					}
+				}
+
+				err := s.Start(ctx)
+				if !errors.Is(err, context.DeadlineExceeded) && err != nil {
+					return err
+				}
+
+				return nil
+			})
 		}(i)
 	}
 
-	wg.Wait()
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
 
-	cancel()
-
-	assert.Equal(t, int64(duration/intervalSec*schedules), executedCount.Load(), "they should be equal")
+	assert.Equal(t, int64(duration/intervalSec*schedules), executedCount, "they should be equal")
 }
