@@ -25,13 +25,18 @@ type PostgresSchedulerEntityRepo struct {
 }
 
 func (s *PostgresSchedulerEntityRepo) Init(ctx context.Context, name string) error {
-	ddl := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-    		"name" 				VARCHAR  PRIMARY KEY,
+	ddl := fmt.Sprintf(`
+		BEGIN;
+		SELECT PG_ADVISORY_XACT_LOCK(%d);		
+		CREATE TABLE IF NOT EXISTS %s (
+    		"name" 				VARCHAR   PRIMARY KEY,
 			"last_run" 			TIMESTAMP DEFAULT to_timestamp(0),
 			"last_finished_at"  TIMESTAMP DEFAULT to_timestamp(0),
 			"last_success" 		TIMESTAMP DEFAULT to_timestamp(0),
 			"last_error" 		VARCHAR
-    )`, s.tableName)
+    	);
+		COMMIT;
+    `, time.Now().Unix(), s.tableName)
 
 	if _, err := s.db.ExecContext(ctx, ddl); err != nil {
 		return err
