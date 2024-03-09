@@ -1,4 +1,4 @@
-package scheduler
+package postgres
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	"github.com/mbobrovskyi/goscheduler/entity"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -13,17 +14,17 @@ import (
 
 const DefaultPostgresTableName = "schedulers"
 
-type PostgreSQLSchedulerEntityRepoOptions struct {
+type PostgresSchedulerEntityRepoOptions struct {
 	TableName string
 }
 
-type PostgreSQLSchedulerEntityRepo struct {
+type PostgresSchedulerEntityRepo struct {
 	db *sql.DB
 
 	tableName string
 }
 
-func (s *PostgreSQLSchedulerEntityRepo) Init(ctx context.Context, name string) error {
+func (s *PostgresSchedulerEntityRepo) Init(ctx context.Context, name string) error {
 	ddl := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     		"name" 				VARCHAR  PRIMARY KEY,
 			"last_run" 			TIMESTAMP DEFAULT to_timestamp(0),
@@ -46,8 +47,8 @@ func (s *PostgreSQLSchedulerEntityRepo) Init(ctx context.Context, name string) e
 	return err
 }
 
-func (s *PostgreSQLSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*SchedulerEntity, error) {
-	var schedulerEntity SchedulerEntity
+func (s *PostgresSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*entity.SchedulerEntity, error) {
+	var schedulerEntity entity.SchedulerEntity
 
 	query := fmt.Sprintf(`
 		UPDATE %s
@@ -86,7 +87,7 @@ func (s *PostgreSQLSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, na
 	return &schedulerEntity, nil
 }
 
-func (s *PostgreSQLSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity SchedulerEntity) error {
+func (s *PostgresSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
 	query := fmt.Sprintf(`
 		INSERT INTO %s (name, last_run, last_finished_at, last_success, last_error)
 			VALUES ($1, $2, $3, $4, $5)
@@ -108,11 +109,11 @@ func (s *PostgreSQLSchedulerEntityRepo) Save(ctx context.Context, schedulerEntit
 	return err
 }
 
-func NewPostgreSQLSchedulerEntityRepo(
+func NewPostgresSchedulerEntity(
 	db *sql.DB,
-	options *PostgreSQLSchedulerEntityRepoOptions,
-) *PostgreSQLSchedulerEntityRepo {
-	repo := &PostgreSQLSchedulerEntityRepo{
+	options *PostgresSchedulerEntityRepoOptions,
+) *PostgresSchedulerEntityRepo {
+	repo := &PostgresSchedulerEntityRepo{
 		db: db,
 	}
 

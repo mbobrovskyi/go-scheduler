@@ -1,7 +1,8 @@
-package scheduler
+package mongo
 
 import (
 	"context"
+	"github.com/mbobrovskyi/goscheduler/entity"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -22,7 +23,7 @@ type MongoDBSchedulerEntityRepo struct {
 
 func (s *MongoDBSchedulerEntityRepo) Init(ctx context.Context, name string) error {
 	filter := bson.D{{"name", name}}
-	update := bson.D{{"$setOnInsert", NewSchedulerEntity(name)}}
+	update := bson.D{{"$setOnInsert", entity.NewSchedulerEntity(name)}}
 	opts := options.FindOneAndUpdate().SetUpsert(true)
 
 	if err := s.db.Collection(s.collectionName).
@@ -36,8 +37,8 @@ func (s *MongoDBSchedulerEntityRepo) Init(ctx context.Context, name string) erro
 	return nil
 }
 
-func (s *MongoDBSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*SchedulerEntity, error) {
-	var schedulerEntity SchedulerEntity
+func (s *MongoDBSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*entity.SchedulerEntity, error) {
+	var schedulerEntity entity.SchedulerEntity
 
 	filter := bson.D{
 		{"name", name},
@@ -61,7 +62,7 @@ func (s *MongoDBSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name 
 	return &schedulerEntity, nil
 }
 
-func (s *MongoDBSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity SchedulerEntity) error {
+func (s *MongoDBSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
 	filter := bson.D{{"name", schedulerEntity.Name}}
 	update := bson.D{{"$set", schedulerEntity}}
 
@@ -72,7 +73,7 @@ func (s *MongoDBSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity S
 	return nil
 }
 
-func NewMongoDBSchedulerEntityRepoImpl(
+func NewMongoDBSchedulerEntityRepo(
 	db *mongo.Database,
 	options *MongoDBSchedulerEntityRepoOptions,
 ) *MongoDBSchedulerEntityRepo {

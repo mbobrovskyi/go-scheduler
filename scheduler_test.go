@@ -1,14 +1,19 @@
-package scheduler_test
+package goscheduler_test
 
 import (
 	"context"
 	"fmt"
 	"github.com/docker/docker/api/types/container"
-	"github.com/mbobrovskyi/go-scheduler/pkg/database/mongodb"
-	"github.com/mbobrovskyi/go-scheduler/pkg/database/postgres"
-	"github.com/mbobrovskyi/go-scheduler/pkg/database/redis"
-	"github.com/mbobrovskyi/go-scheduler/pkg/logger"
-	"github.com/mbobrovskyi/go-scheduler/pkg/scheduler"
+	"github.com/mbobrovskyi/golibs/database/mongodb"
+	"github.com/mbobrovskyi/golibs/database/postgres"
+	"github.com/mbobrovskyi/golibs/database/redis"
+	"github.com/mbobrovskyi/golibs/logger"
+	"github.com/mbobrovskyi/goscheduler"
+	"github.com/mbobrovskyi/goscheduler/repository"
+	"github.com/mbobrovskyi/goscheduler/repository/memory"
+	"github.com/mbobrovskyi/goscheduler/repository/mongo"
+	postgresrepository "github.com/mbobrovskyi/goscheduler/repository/postgres"
+	redisrepository "github.com/mbobrovskyi/goscheduler/repository/redis"
 	"github.com/stretchr/testify/assert"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -19,11 +24,11 @@ import (
 )
 
 func TestSchedulerInMemory(t *testing.T) {
-	testScheduler(t, scheduler.NewInMemorySchedulerEntityRepoImpl())
+	testScheduler(t, memory.NewInMemorySchedulerEntityRepo())
 }
 
 func TestSchedulerMultipleInMemory(t *testing.T) {
-	testSchedulerMultiple(t, scheduler.NewInMemorySchedulerEntityRepoImpl())
+	testSchedulerMultiple(t, memory.NewInMemorySchedulerEntityRepo())
 }
 
 func TestSchedulerMongodb(t *testing.T) {
@@ -50,7 +55,7 @@ func TestSchedulerPostgresMultiple(t *testing.T) {
 	testSchedulerMultiple(t, postgresSchedulerEntityRepo(t))
 }
 
-func mongodbSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
+func mongodbSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -91,15 +96,15 @@ func mongodbSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
 
 	db := dbClient.Database("test")
 
-	options := &scheduler.MongoDBSchedulerEntityRepoOptions{
+	options := &mongo.MongoDBSchedulerEntityRepoOptions{
 		CollectionName: "test-scheduler",
 	}
-	schedulerRepo := scheduler.NewMongoDBSchedulerEntityRepoImpl(db, options)
+	schedulerRepo := mongo.NewMongoDBSchedulerEntityRepo(db, options)
 
 	return schedulerRepo
 }
 
-func redisSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
+func redisSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -140,15 +145,15 @@ func redisSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
 		t.Fatal(err)
 	}
 
-	options := &scheduler.RedisSchedulerRepoOptions{
+	options := &redisrepository.RedisSchedulerRepoOptions{
 		Key: "test-scheduler",
 	}
-	schedulerRepo := scheduler.NewRedisSchedulerEntityRepoImpl(db, options)
+	schedulerRepo := redisrepository.NewRedisSchedulerEntityRepo(db, options)
 
 	return schedulerRepo
 }
 
-func postgresSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
+func postgresSchedulerEntityRepo(t *testing.T) repository.SchedulerEntityRepo {
 	containerPort := "5432/tcp"
 	imageName := "postgres:latest"
 	ctx := context.Background()
@@ -197,23 +202,26 @@ func postgresSchedulerEntityRepo(t *testing.T) scheduler.SchedulerEntityRepo {
 		t.Fatal(err)
 	}
 
-	options := &scheduler.PostgreSQLSchedulerEntityRepoOptions{
+	options := &postgresrepository.PostgresSchedulerEntityRepoOptions{
 		TableName: "test_scheduler",
 	}
-	schedulerRepo := scheduler.NewPostgreSQLSchedulerEntityRepo(db, options)
+	schedulerRepo := postgresrepository.NewPostgresSchedulerEntity(db, options)
 
 	return schedulerRepo
 }
 
-func testScheduler(t *testing.T, schedulerEntityRepo scheduler.SchedulerEntityRepo) {
-	s := scheduler.NewScheduler(logger.NewTestLogger(t), schedulerEntityRepo)
+func testScheduler(t *testing.T, schedulerEntityRepo repository.SchedulerEntityRepo) {
+	s := goscheduler.NewSchedulerWithOptions(goscheduler.SchedulerOptions{
+		Logger:              logger.NewTestLogger(t),
+		SchedulerEntityRepo: schedulerEntityRepo,
+	})
 
 	var (
 		count         int64 = 5
 		executedCount atomic.Int64
 	)
 
-	if err := s.Add(fmt.Sprintf("schedule"), time.Second, func(ctx scheduler.Context) (bool, error) {
+	if err := s.Add(fmt.Sprintf("schedule"), time.Second, func(ctx goscheduler.Context) (bool, error) {
 		t.Logf("Counter: %d. Last Run: %s. Last Finished At: %s. Last Success: %s.",
 			ctx.Counter(),
 			ctx.SchedulerEntity().LastRun.Format(time.RFC3339),
@@ -240,7 +248,7 @@ func testScheduler(t *testing.T, schedulerEntityRepo scheduler.SchedulerEntityRe
 	assert.Equal(t, count, executedCount.Load(), "they should be equal")
 }
 
-func testSchedulerMultiple(t *testing.T, schedulerEntityRepo scheduler.SchedulerEntityRepo) {
+func testSchedulerMultiple(t *testing.T, schedulerEntityRepo repository.SchedulerEntityRepo) {
 	const (
 		intervalSec = 2
 		interval    = intervalSec * time.Second
@@ -261,11 +269,14 @@ func testSchedulerMultiple(t *testing.T, schedulerEntityRepo scheduler.Scheduler
 		go func(i int) {
 			defer wg.Done()
 
-			s := scheduler.NewScheduler(logger.NewTestLogger(t), schedulerEntityRepo)
+			s := goscheduler.NewSchedulerWithOptions(goscheduler.SchedulerOptions{
+				Logger:              logger.NewTestLogger(t),
+				SchedulerEntityRepo: schedulerEntityRepo,
+			})
 
 			for j := 0; j < schedules; j++ {
 				func(i, j int) {
-					if err := s.Add(fmt.Sprintf("schedule %d", j+1), interval, func(ctx scheduler.Context) (bool, error) {
+					if err := s.Add(fmt.Sprintf("schedule %d", j+1), interval, func(ctx goscheduler.Context) (bool, error) {
 						t.Logf("Counter: %d. Last Run: %s. Last Success: %s. Last Finished At: %s. Scheduler: %d. Schedule %d.",
 							ctx.Counter(),
 							ctx.SchedulerEntity().LastRun.Format(time.RFC3339),

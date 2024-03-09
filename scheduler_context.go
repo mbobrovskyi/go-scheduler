@@ -1,7 +1,9 @@
-package scheduler
+package goscheduler
 
 import (
 	"context"
+	"github.com/mbobrovskyi/goscheduler/entity"
+	"github.com/mbobrovskyi/goscheduler/repository"
 	"time"
 )
 
@@ -10,20 +12,19 @@ type Context interface {
 
 	Name() string
 	Interval() time.Duration
-	SchedulerEntity() SchedulerEntity
-	Counter() int64
-	SaveSchedulerEntity(schedulerEntity SchedulerEntity) error
+	SchedulerEntity() entity.SchedulerEntity
+	Counter() int
 	ExecutionTime() time.Time
 }
 
 type SchedulerContext struct {
 	context.Context
 
-	schedulerEntityRepo SchedulerEntityRepo
+	schedulerEntityRepo repository.SchedulerEntityRepo
 	schedulerName       string
 	schedulerInterval   time.Duration
-	schedulerEntity     SchedulerEntity
-	counter             int64
+	schedulerEntity     entity.SchedulerEntity
+	counter             int
 
 	executionTime time.Time
 }
@@ -36,11 +37,11 @@ func (s *SchedulerContext) Interval() time.Duration {
 	return s.schedulerInterval
 }
 
-func (s *SchedulerContext) SchedulerEntity() SchedulerEntity {
+func (s *SchedulerContext) SchedulerEntity() entity.SchedulerEntity {
 	return s.schedulerEntity
 }
 
-func (s *SchedulerContext) Counter() int64 {
+func (s *SchedulerContext) Counter() int {
 	return s.counter
 }
 
@@ -48,22 +49,13 @@ func (s *SchedulerContext) ExecutionTime() time.Time {
 	return s.executionTime
 }
 
-func (s *SchedulerContext) SaveSchedulerEntity(schedulerEntity SchedulerEntity) error {
-	err := s.schedulerEntityRepo.Save(s.Context, schedulerEntity)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func NewContext(
 	ctx context.Context,
-	schedulerEntityRepo SchedulerEntityRepo,
+	schedulerEntityRepo repository.SchedulerEntityRepo,
 	name string,
 	interval time.Duration,
-	schedulerEntity SchedulerEntity,
-	counter int64,
+	schedulerEntity entity.SchedulerEntity,
+	counter int,
 	executionTime time.Time,
 ) Context {
 	return &SchedulerContext{

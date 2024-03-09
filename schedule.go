@@ -1,4 +1,4 @@
-package scheduler
+package goscheduler
 
 import (
 	"time"
@@ -10,7 +10,7 @@ type Schedule struct {
 	Name     string
 	Interval time.Duration
 	Function ExecuteFunction
-	Counter  int64
+	Counter  int
 	LastRun  time.Time
 }
 

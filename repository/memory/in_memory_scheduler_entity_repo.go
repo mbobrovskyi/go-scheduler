@@ -1,14 +1,15 @@
-package scheduler
+package memory
 
 import (
 	"context"
+	"github.com/mbobrovskyi/goscheduler/entity"
 	"sync"
 	"time"
 )
 
 type InMemorySchedulerEntityRepo struct {
 	mtx               sync.Mutex
-	schedulerEntities map[string]SchedulerEntity
+	schedulerEntities map[string]entity.SchedulerEntity
 }
 
 func (r *InMemorySchedulerEntityRepo) Init(ctx context.Context, name string) error {
@@ -16,13 +17,13 @@ func (r *InMemorySchedulerEntityRepo) Init(ctx context.Context, name string) err
 	defer r.mtx.Unlock()
 
 	if _, ok := r.schedulerEntities[name]; !ok {
-		r.schedulerEntities[name] = NewSchedulerEntity(name)
+		r.schedulerEntities[name] = entity.NewSchedulerEntity(name)
 	}
 
 	return nil
 }
 
-func (r *InMemorySchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*SchedulerEntity, error) {
+func (r *InMemorySchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*entity.SchedulerEntity, error) {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
@@ -36,7 +37,7 @@ func (r *InMemorySchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name
 	return nil, nil
 }
 
-func (r *InMemorySchedulerEntityRepo) Save(ctx context.Context, schedulerEntity SchedulerEntity) error {
+func (r *InMemorySchedulerEntityRepo) Save(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
@@ -44,8 +45,8 @@ func (r *InMemorySchedulerEntityRepo) Save(ctx context.Context, schedulerEntity 
 	return nil
 }
 
-func NewInMemorySchedulerEntityRepoImpl() *InMemorySchedulerEntityRepo {
+func NewInMemorySchedulerEntityRepo() *InMemorySchedulerEntityRepo {
 	return &InMemorySchedulerEntityRepo{
-		schedulerEntities: make(map[string]SchedulerEntity),
+		schedulerEntities: make(map[string]entity.SchedulerEntity),
 	}
 }

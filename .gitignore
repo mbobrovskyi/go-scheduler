@@ -9,6 +9,7 @@
 .vscode
 .DS_Store
 
+dist/
 vendor/
 
 .env*

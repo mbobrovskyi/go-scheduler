@@ -1,11 +1,11 @@
-package scheduler
+package goscheduler
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/mbobrovskyi/go-scheduler/pkg/logger"
-	"github.com/mbobrovskyi/go-scheduler/pkg/sleep"
+	"github.com/mbobrovskyi/goscheduler/repository"
+	"github.com/mbobrovskyi/gosleep"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -24,10 +24,11 @@ type Scheduler interface {
 }
 
 type schedulerImpl struct {
-	log                 logger.Logger
-	schedulerEntityRepo SchedulerEntityRepo
+	logger              Logger
+	schedulerEntityRepo repository.SchedulerEntityRepo
 	schedules           map[string]Schedule
 	isStarted           bool
+	doneCh              chan struct{}
 }
 
 func (s *schedulerImpl) Add(name string, interval time.Duration, f ExecuteFunction) error {
@@ -89,35 +90,35 @@ func (s *schedulerImpl) Start(ctx context.Context) error {
 
 func (s *schedulerImpl) init(ctx context.Context, name string) error {
 	if err := s.schedulerEntityRepo.Init(ctx, name); err != nil {
-		return fmt.Errorf("failed to init schedule '%s': %w", name, err)
+		return fmt.Errorf("failed to init schedule %s: %w", name, err)
 	}
 
 	return nil
 }
 
 func (s *schedulerImpl) startSchedule(ctx context.Context, schedule Schedule) error {
-	s.log.Debugf("Schedule '%s': started", schedule.Name)
+	s.logger.Debug(fmt.Sprintf("Schedule %s: started", schedule.Name))
 
 	retryInterval := schedule.retryInterval()
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.log.Debugf("Schedule '%s': stopped", schedule.Name)
+			s.logger.Debug(fmt.Sprintf("Schedule %s: stopped", schedule.Name))
 			return ctx.Err()
 		case now := <-time.After(time.Until(schedule.LastRun.Add(schedule.Interval))):
-			s.log.Debugf("Schedule '%s': running", schedule.Name)
+			s.logger.Debug(fmt.Sprintf("Schedule %s: running", schedule.Name))
 
 			schedulerEntity, err := s.schedulerEntityRepo.GetAndSetLastRun(ctx, schedule.Name, now.Add(-schedule.Interval))
 			if err != nil {
 				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-					s.log.Errorf("Schedule '%s': error on get schedule and set last run: %s", schedule.Name, err.Error())
+					s.logger.Error(fmt.Sprintf("Schedule %s: error on get schedule and set last run: %s", schedule.Name, err.Error()))
 				}
 				continue
 			}
 
 			if schedulerEntity == nil {
-				sleep.WithContext(ctx, retryInterval)
+				gosleep.WithContext(ctx, retryInterval)
 				continue
 			}
 
@@ -136,7 +137,7 @@ func (s *schedulerImpl) startSchedule(ctx context.Context, schedule Schedule) er
 			success, err := schedule.Function(scheduleCtx)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-					s.log.Errorf("Schedule '%s': error on execute function: %s", schedule.Name, err.Error())
+					s.logger.Error(fmt.Sprintf("Schedule %s: error on execute function: %s", schedule.Name, err.Error()))
 				}
 				errMessage := err.Error()
 				schedulerEntity.LastError = &errMessage
@@ -152,18 +153,10 @@ func (s *schedulerImpl) startSchedule(ctx context.Context, schedule Schedule) er
 
 			if err = s.schedulerEntityRepo.Save(ctx, *schedulerEntity); err != nil {
 				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-					s.log.Errorf("Schedule '%s': error on save schedule: %s", schedule.Name, err.Error())
+					s.logger.Error(fmt.Sprintf("Schedule %s: error on save schedule: %s", schedule.Name, err.Error()))
 				}
 				continue
 			}
 		}
-	}
-}
-
-func NewScheduler(log logger.Logger, schedulerEntityRepo SchedulerEntityRepo) Scheduler {
-	return &schedulerImpl{
-		log:                 log,
-		schedulerEntityRepo: schedulerEntityRepo,
-		schedules:           make(map[string]Schedule),
 	}
 }

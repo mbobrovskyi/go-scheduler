@@ -1,4 +1,4 @@
-package scheduler
+package redis
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/mbobrovskyi/goscheduler/entity"
 	"github.com/redis/go-redis/v9"
 	"time"
 )
@@ -32,7 +33,7 @@ func (s *RedisSchedulerEntityRepo) getLockKey(name string) string {
 
 func (s *RedisSchedulerEntityRepo) Init(ctx context.Context, name string) error {
 	key := s.getKey(name)
-	value, err := json.Marshal(NewSchedulerEntity(name))
+	value, err := json.Marshal(entity.NewSchedulerEntity(name))
 	if err != nil {
 		return err
 	}
@@ -43,7 +44,7 @@ func (s *RedisSchedulerEntityRepo) Init(ctx context.Context, name string) error 
 	return nil
 }
 
-func (s *RedisSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*SchedulerEntity, error) {
+func (s *RedisSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name string, lastRunTo time.Time) (*entity.SchedulerEntity, error) {
 	const expiration = 5 * time.Second
 
 	lockKey := s.getLockKey(name)
@@ -88,11 +89,11 @@ func (s *RedisSchedulerEntityRepo) GetAndSetLastRun(ctx context.Context, name st
 	return schedulerEntity, nil
 }
 
-func (s *RedisSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity SchedulerEntity) error {
+func (s *RedisSchedulerEntityRepo) Save(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
 	return s.set(ctx, schedulerEntity)
 }
 
-func (s *RedisSchedulerEntityRepo) get(ctx context.Context, name string) (*SchedulerEntity, error) {
+func (s *RedisSchedulerEntityRepo) get(ctx context.Context, name string) (*entity.SchedulerEntity, error) {
 	value, err := s.db.Get(ctx, s.getKey(name)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -101,7 +102,7 @@ func (s *RedisSchedulerEntityRepo) get(ctx context.Context, name string) (*Sched
 		return nil, err
 	}
 
-	var schedulerEntity SchedulerEntity
+	var schedulerEntity entity.SchedulerEntity
 
 	if err := json.Unmarshal(value, &schedulerEntity); err != nil {
 		return nil, err
@@ -110,7 +111,7 @@ func (s *RedisSchedulerEntityRepo) get(ctx context.Context, name string) (*Sched
 	return &schedulerEntity, nil
 }
 
-func (s *RedisSchedulerEntityRepo) set(ctx context.Context, schedulerEntity SchedulerEntity) error {
+func (s *RedisSchedulerEntityRepo) set(ctx context.Context, schedulerEntity entity.SchedulerEntity) error {
 	key := s.getKey(schedulerEntity.Name)
 
 	value, err := json.Marshal(schedulerEntity)
@@ -125,7 +126,7 @@ func (s *RedisSchedulerEntityRepo) set(ctx context.Context, schedulerEntity Sche
 	return nil
 }
 
-func NewRedisSchedulerEntityRepoImpl(
+func NewRedisSchedulerEntityRepo(
 	db *redis.Client,
 	options *RedisSchedulerRepoOptions,
 ) *RedisSchedulerEntityRepo {
